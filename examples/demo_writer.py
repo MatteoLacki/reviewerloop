@@ -22,7 +22,8 @@ def main() -> int:
         encoding="utf-8",
     )
     shutil.rmtree(project / "__pycache__", ignore_errors=True)
-    print("fixed calc.add")
+    print("Writer note: failing test shows add(2, 3) returns -1 because calc.add subtracts b.")
+    print("Writer note: changed calc.add to return a + b and cleared stale bytecode for the demo.")
     return 0
 
 

@@ -190,6 +190,7 @@ Test command: {test_cmd}
 Cycle: {cycle}
 
 Review the project for correctness, regressions, missing corner cases, and YAGNI violations.
+Print a concise human-readable summary of what you inspected, what you found, and why it matters.
 Create or update one markdown file per open issue in the open issues directory.
 If practical, add regression tests that fail until the issue is fixed.
 Every new pytest regression test must have a docstring explaining why the test exists and what behavior it guards.
@@ -205,6 +206,7 @@ Open issues directory: {open_issues_dir}
 Test command: {test_cmd}
 
 Read the open issue files and the failing pytest docstrings before editing code.
+Print a concise human-readable summary of what is failing, what change you made, and why that should fix it.
 Make the smallest production-code change that resolves the open issues.
 Do not move issue files; the reviewer owns issue closure.
 
@@ -230,6 +232,7 @@ Closed issues directory: {closed_issues_dir}
 Test command: {test_cmd}
 
 Review the current code and test output.
+Print a concise human-readable verification note explaining whether the fix is complete.
 Move only genuinely fixed issue files from open to closed.
 Keep unresolved issues in open and add concise notes if the fix is incomplete.
 Add new issue files only for real regressions or newly discovered risks.
