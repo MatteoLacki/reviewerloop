@@ -70,6 +70,14 @@ Follow YAGNI:
 
 ## Development
 
+Demo target:
+
+```bash
+make demo
+```
+
+This creates `/tmp/reviewerloop-demo` with intentionally broken Python code and runs the real CLI with deterministic local reviewer/writer scripts from `examples/`.
+
 Use the local virtualenv if present:
 
 ```bash

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import selectors
 import shlex
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -69,6 +71,7 @@ def run_loop(args: argparse.Namespace) -> int:
         run_dir = runs_dir / f"{cycle:03d}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
+        print(f"[reviewerloop] cycle {cycle}: reviewer", flush=True)
         review_prompt = build_reviewer_prompt(project, open_issues_dir, closed_issues_dir, args.test_cmd, cycle)
         reviewer_result = run_agent(args.reviewer, review_prompt, project)
         write_text(run_dir / "reviewer.prompt.md", review_prompt)
@@ -78,6 +81,7 @@ def run_loop(args: argparse.Namespace) -> int:
             write_state(workspace / "state.json", state)
             return reviewer_result.returncode
 
+        print(f"[reviewerloop] cycle {cycle}: tests after review", flush=True)
         first_tests = run_command(args.test_cmd, project)
         write_result(run_dir / "tests.after-review", first_tests)
 
@@ -88,6 +92,7 @@ def run_loop(args: argparse.Namespace) -> int:
             write_state(workspace / "state.json", state)
             return 0
 
+        print(f"[reviewerloop] cycle {cycle}: writer", flush=True)
         writer_prompt = build_writer_prompt(project, open_issues_dir, args.test_cmd, first_tests)
         writer_result = run_agent(args.writer, writer_prompt, project)
         write_text(run_dir / "writer.prompt.md", writer_prompt)
@@ -97,9 +102,11 @@ def run_loop(args: argparse.Namespace) -> int:
             write_state(workspace / "state.json", state)
             return writer_result.returncode
 
+        print(f"[reviewerloop] cycle {cycle}: tests after writer", flush=True)
         second_tests = run_command(args.test_cmd, project)
         write_result(run_dir / "tests.after-writer", second_tests)
 
+        print(f"[reviewerloop] cycle {cycle}: verifier", flush=True)
         verify_prompt = build_verifier_prompt(project, open_issues_dir, closed_issues_dir, args.test_cmd, second_tests)
         verifier_result = run_agent(args.reviewer, verify_prompt, project)
         write_text(run_dir / "verifier.prompt.md", verify_prompt)
@@ -109,6 +116,7 @@ def run_loop(args: argparse.Namespace) -> int:
             write_state(workspace / "state.json", state)
             return verifier_result.returncode
 
+        print(f"[reviewerloop] cycle {cycle}: tests after verifier", flush=True)
         final_tests = run_command(args.test_cmd, project)
         write_result(run_dir / "tests.after-verifier", final_tests)
 
@@ -127,16 +135,43 @@ def run_agent(command: str, prompt: str, cwd: Path) -> CommandResult:
 
 
 def run_command(command: str, cwd: Path, stdin: str | None = None) -> CommandResult:
-    completed = subprocess.run(
+    print(f"[reviewerloop] running: {command}", flush=True)
+    process = subprocess.Popen(
         shlex.split(command),
-        input=stdin,
-        text=True,
         cwd=cwd,
+        stdin=subprocess.PIPE if stdin is not None else None,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        check=False,
+        text=True,
+        bufsize=1,
     )
-    return CommandResult(completed.returncode, completed.stdout, completed.stderr)
+    if stdin is not None and process.stdin is not None:
+        process.stdin.write(stdin)
+        process.stdin.close()
+
+    selector = selectors.DefaultSelector()
+    assert process.stdout is not None
+    assert process.stderr is not None
+    selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+    selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+
+    while selector.get_map():
+        for key, _ in selector.select():
+            chunk = key.fileobj.readline()
+            if not chunk:
+                selector.unregister(key.fileobj)
+                continue
+            if key.data == "stdout":
+                stdout_parts.append(chunk)
+                print(chunk, end="", file=sys.stdout, flush=True)
+            else:
+                stderr_parts.append(chunk)
+                print(chunk, end="", file=sys.stderr, flush=True)
+
+    returncode = process.wait()
+    return CommandResult(returncode, "".join(stdout_parts), "".join(stderr_parts))
 
 
 def build_reviewer_prompt(

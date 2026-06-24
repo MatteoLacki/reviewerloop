@@ -1,15 +1,29 @@
-make:
-    echo "Welcome to Project 'reviewerloop'"
+.PHONY: test demo clean-demo venv
 
-upload_test_pypi:
-    twine check dist/*
-    python -m pip install --upgrade twine
-    twine upload --repository testpypi dist/*
+ROOT := $(CURDIR)
+PYTHON ?= $(ROOT)/ve_reviewerloop/bin/python
+REVIEWERLOOP ?= $(ROOT)/ve_reviewerloop/bin/reviewerloop
+DEMO_DIR ?= /tmp/reviewerloop-demo
 
-upload_pypi:
-    twine check dist/*
-    python -m pip install --upgrade twine
-    twine upload dist/* 
+test:
+	$(PYTHON) -m pytest -q
 
-ve_reviewerloop:
-    python3 -m venv ve_reviewerloop
+venv:
+	python3 -m venv ve_reviewerloop
+	ve_reviewerloop/bin/python -m pip install -e '.[dev]'
+
+demo:
+	$(PYTHON) examples/make_demo_project.py $(DEMO_DIR)
+	$(REVIEWERLOOP) run \
+		--project $(DEMO_DIR) \
+		--reviewer "$(PYTHON) $(ROOT)/examples/demo_reviewer.py" \
+		--writer "$(PYTHON) $(ROOT)/examples/demo_writer.py" \
+		--test-cmd "$(PYTHON) -m pytest -q" \
+		--max-cycles 2
+	cd $(DEMO_DIR) && $(PYTHON) -m pytest -q
+	@test -f $(DEMO_DIR)/.reviewerloop/issues/closed/RL-0001-addition.md
+	@test ! -f $(DEMO_DIR)/.reviewerloop/issues/open/RL-0001-addition.md
+	@echo "demo passed: $(DEMO_DIR)"
+
+clean-demo:
+	rm -rf $(DEMO_DIR)

@@ -27,3 +27,13 @@ Artifacts are stored in the target project:
 ```
 
 The agent commands are plain subprocess commands. `reviewerloop` sends prompts on stdin and captures stdout, stderr, and return codes.
+
+## Demo
+
+Run a deterministic local demo against a broken project in `/tmp/reviewerloop-demo`:
+
+```bash
+make demo
+```
+
+The demo creates a broken `calc.add` implementation, uses local Python scripts as reviewer and writer agents, adds a regression test with a rationale docstring, fixes the code, and verifies the issue file moved from `issues/open` to `issues/closed`.
