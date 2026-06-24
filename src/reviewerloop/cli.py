@@ -11,6 +11,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+RED = "\033[31m"
+BLUE = "\033[34m"
+MAGENTA = "\033[35m"
+YELLOW = "\033[33m"
+DIM = "\033[2m"
+RESET = "\033[0m"
+
+
+def color(text: str, ansi: str) -> str:
+    if not sys.stdout.isatty():
+        return text
+    return f"{ansi}{text}{RESET}"
+
+
 @dataclass(frozen=True)
 class CommandResult:
     returncode: int
@@ -71,7 +85,7 @@ def run_loop(args: argparse.Namespace) -> int:
         run_dir = runs_dir / f"{cycle:03d}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"[reviewerloop] cycle {cycle}: reviewer", flush=True)
+        print(color(f"[reviewerloop] cycle {cycle}: reviewer", RED), flush=True)
         review_prompt = build_reviewer_prompt(project, open_issues_dir, closed_issues_dir, args.test_cmd, cycle)
         reviewer_result = run_agent(args.reviewer, review_prompt, project)
         write_text(run_dir / "reviewer.prompt.md", review_prompt)
@@ -81,7 +95,7 @@ def run_loop(args: argparse.Namespace) -> int:
             write_state(workspace / "state.json", state)
             return reviewer_result.returncode
 
-        print(f"[reviewerloop] cycle {cycle}: tests after review", flush=True)
+        print(color(f"[reviewerloop] cycle {cycle}: tests after review", YELLOW), flush=True)
         first_tests = run_command(args.test_cmd, project)
         write_result(run_dir / "tests.after-review", first_tests)
 
@@ -92,7 +106,7 @@ def run_loop(args: argparse.Namespace) -> int:
             write_state(workspace / "state.json", state)
             return 0
 
-        print(f"[reviewerloop] cycle {cycle}: writer", flush=True)
+        print(color(f"[reviewerloop] cycle {cycle}: writer", BLUE), flush=True)
         writer_prompt = build_writer_prompt(project, open_issues_dir, args.test_cmd, first_tests)
         writer_result = run_agent(args.writer, writer_prompt, project)
         write_text(run_dir / "writer.prompt.md", writer_prompt)
@@ -102,11 +116,11 @@ def run_loop(args: argparse.Namespace) -> int:
             write_state(workspace / "state.json", state)
             return writer_result.returncode
 
-        print(f"[reviewerloop] cycle {cycle}: tests after writer", flush=True)
+        print(color(f"[reviewerloop] cycle {cycle}: tests after writer", YELLOW), flush=True)
         second_tests = run_command(args.test_cmd, project)
         write_result(run_dir / "tests.after-writer", second_tests)
 
-        print(f"[reviewerloop] cycle {cycle}: verifier", flush=True)
+        print(color(f"[reviewerloop] cycle {cycle}: verifier", MAGENTA), flush=True)
         verify_prompt = build_verifier_prompt(project, open_issues_dir, closed_issues_dir, args.test_cmd, second_tests)
         verifier_result = run_agent(args.reviewer, verify_prompt, project)
         write_text(run_dir / "verifier.prompt.md", verify_prompt)
@@ -116,7 +130,7 @@ def run_loop(args: argparse.Namespace) -> int:
             write_state(workspace / "state.json", state)
             return verifier_result.returncode
 
-        print(f"[reviewerloop] cycle {cycle}: tests after verifier", flush=True)
+        print(color(f"[reviewerloop] cycle {cycle}: tests after verifier", YELLOW), flush=True)
         final_tests = run_command(args.test_cmd, project)
         write_result(run_dir / "tests.after-verifier", final_tests)
 
@@ -135,7 +149,7 @@ def run_agent(command: str, prompt: str, cwd: Path) -> CommandResult:
 
 
 def run_command(command: str, cwd: Path, stdin: str | None = None) -> CommandResult:
-    print(f"[reviewerloop] running: {command}", flush=True)
+    print(color(f"[reviewerloop] running: {command}", DIM), flush=True)
     process = subprocess.Popen(
         shlex.split(command),
         cwd=cwd,
