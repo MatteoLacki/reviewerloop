@@ -23,7 +23,9 @@ The target project receives:
 
 ```text
 .reviewerloop/
-  issues/       # markdown issue files written by the reviewer
+  issues/
+    open/       # markdown issue files that still need work
+    closed/     # issue files moved here after reviewer verification
   runs/         # prompts, stdout, stderr, and return codes per cycle
   state.json    # machine-readable loop state
 ```
@@ -33,10 +35,10 @@ The target project receives:
 Reviewer responsibilities:
 
 - Inspect the target project for correctness, regressions, corner cases, and YAGNI violations.
-- Create or update one markdown issue file per issue under `.reviewerloop/issues`.
+- Create or update one markdown issue file per issue under `.reviewerloop/issues/open`.
 - Add regression tests when practical.
 - Put rationale in pytest test docstrings so future agents know why failing tests exist.
-- Mark issues resolved only after tests pass and the fix has been reviewed.
+- Close issues only by moving files from `.reviewerloop/issues/open` to `.reviewerloop/issues/closed` after tests pass and the fix has been reviewed.
 - Avoid production fixes unless explicitly requested outside the normal loop.
 
 Writer responsibilities:
@@ -44,7 +46,7 @@ Writer responsibilities:
 - Read open issue files.
 - Read failing pytest docstrings before debugging.
 - Make the smallest production-code change that resolves open issues.
-- Do not mark issues resolved; the reviewer owns issue status.
+- Do not move issue files; the reviewer owns issue closure.
 
 ## Code Layout
 

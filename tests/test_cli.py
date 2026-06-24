@@ -1,18 +1,16 @@
-from reviewerloop.cli import CommandResult, issue_status, list_open_issues, trim
+from reviewerloop.cli import CommandResult, list_open_issues, trim
 
 
-def test_issue_status_reads_frontmatter_style_status(tmp_path):
-    issue = tmp_path / "RL-0001.md"
-    issue.write_text("status: resolved\n\n# Fixed\n")
+def test_list_open_issues_returns_markdown_files_from_open_dir(tmp_path):
+    open_dir = tmp_path / "issues" / "open"
+    closed_dir = tmp_path / "issues" / "closed"
+    open_dir.mkdir(parents=True)
+    closed_dir.mkdir(parents=True)
+    (open_dir / "open.md").write_text("# Open\n")
+    (closed_dir / "closed.md").write_text("# Closed\n")
+    (open_dir / "notes.txt").write_text("not an issue\n")
 
-    assert issue_status(issue) == "resolved"
-
-
-def test_list_open_issues_excludes_resolved_files(tmp_path):
-    (tmp_path / "open.md").write_text("status: open\n")
-    (tmp_path / "done.md").write_text("status: resolved\n")
-
-    assert list_open_issues(tmp_path) == ["open.md"]
+    assert list_open_issues(open_dir) == ["open.md"]
 
 
 def test_trim_keeps_tail_of_long_output():
@@ -50,9 +48,12 @@ def test_run_loop_stops_when_reviewer_finds_no_issues(tmp_path):
         "1",
     ])
 
+    issues_dir = tmp_path / ".reviewerloop" / "issues"
     assert rc == 0
     assert (tmp_path / ".reviewerloop" / "state.json").exists()
-    assert not list((tmp_path / ".reviewerloop" / "issues").glob("*.md"))
+    assert (issues_dir / "open").is_dir()
+    assert (issues_dir / "closed").is_dir()
+    assert not list((issues_dir / "open").glob("*.md"))
 
 
 def test_run_loop_stops_when_reviewer_command_fails(tmp_path):

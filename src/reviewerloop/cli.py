@@ -50,8 +50,11 @@ def run_loop(args: argparse.Namespace) -> int:
     project = args.project.resolve()
     workspace = project / args.workdir
     issues_dir = workspace / "issues"
+    open_issues_dir = issues_dir / "open"
+    closed_issues_dir = issues_dir / "closed"
     runs_dir = workspace / "runs"
-    issues_dir.mkdir(parents=True, exist_ok=True)
+    open_issues_dir.mkdir(parents=True, exist_ok=True)
+    closed_issues_dir.mkdir(parents=True, exist_ok=True)
     runs_dir.mkdir(parents=True, exist_ok=True)
 
     state = {
@@ -66,7 +69,7 @@ def run_loop(args: argparse.Namespace) -> int:
         run_dir = runs_dir / f"{cycle:03d}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
-        review_prompt = build_reviewer_prompt(project, issues_dir, args.test_cmd, cycle)
+        review_prompt = build_reviewer_prompt(project, open_issues_dir, closed_issues_dir, args.test_cmd, cycle)
         reviewer_result = run_agent(args.reviewer, review_prompt, project)
         write_text(run_dir / "reviewer.prompt.md", review_prompt)
         write_result(run_dir / "reviewer", reviewer_result)
@@ -78,14 +81,14 @@ def run_loop(args: argparse.Namespace) -> int:
         first_tests = run_command(args.test_cmd, project)
         write_result(run_dir / "tests.after-review", first_tests)
 
-        open_issues = list_open_issues(issues_dir)
+        open_issues = list_open_issues(open_issues_dir)
         if not open_issues and first_tests.returncode == 0:
             final_tests = first_tests
             state["cycles"].append(cycle_state(cycle, open_issues, first_tests, skipped_writer=True))
             write_state(workspace / "state.json", state)
             return 0
 
-        writer_prompt = build_writer_prompt(project, issues_dir, args.test_cmd, first_tests)
+        writer_prompt = build_writer_prompt(project, open_issues_dir, args.test_cmd, first_tests)
         writer_result = run_agent(args.writer, writer_prompt, project)
         write_text(run_dir / "writer.prompt.md", writer_prompt)
         write_result(run_dir / "writer", writer_result)
@@ -97,7 +100,7 @@ def run_loop(args: argparse.Namespace) -> int:
         second_tests = run_command(args.test_cmd, project)
         write_result(run_dir / "tests.after-writer", second_tests)
 
-        verify_prompt = build_verifier_prompt(project, issues_dir, args.test_cmd, second_tests)
+        verify_prompt = build_verifier_prompt(project, open_issues_dir, closed_issues_dir, args.test_cmd, second_tests)
         verifier_result = run_agent(args.reviewer, verify_prompt, project)
         write_text(run_dir / "verifier.prompt.md", verify_prompt)
         write_result(run_dir / "verifier", verifier_result)
@@ -109,7 +112,7 @@ def run_loop(args: argparse.Namespace) -> int:
         final_tests = run_command(args.test_cmd, project)
         write_result(run_dir / "tests.after-verifier", final_tests)
 
-        open_issues = list_open_issues(issues_dir)
+        open_issues = list_open_issues(open_issues_dir)
         state["cycles"].append(cycle_state(cycle, open_issues, final_tests, skipped_writer=False))
         write_state(workspace / "state.json", state)
 
@@ -136,80 +139,77 @@ def run_command(command: str, cwd: Path, stdin: str | None = None) -> CommandRes
     return CommandResult(completed.returncode, completed.stdout, completed.stderr)
 
 
-def build_reviewer_prompt(project: Path, issues_dir: Path, test_cmd: str, cycle: int) -> str:
-    return f'''You are the reviewer in an automated code review loop.
+def build_reviewer_prompt(
+    project: Path,
+    open_issues_dir: Path,
+    closed_issues_dir: Path,
+    test_cmd: str,
+    cycle: int,
+) -> str:
+    return f"""You are the reviewer in an automated code review loop.
 
 Project: {project}
-Issues directory: {issues_dir}
+Open issues directory: {open_issues_dir}
+Closed issues directory: {closed_issues_dir}
 Test command: {test_cmd}
 Cycle: {cycle}
 
 Review the project for correctness, regressions, missing corner cases, and YAGNI violations.
-Create or update one markdown file per issue in the issues directory.
+Create or update one markdown file per open issue in the open issues directory.
 If practical, add regression tests that fail until the issue is fixed.
 Every new pytest regression test must have a docstring explaining why the test exists and what behavior it guards.
-Do not implement production fixes. Mark issues resolved only when tests pass and you have re-reviewed the fix.
-'''
+Do not implement production fixes. Close issues only by moving issue files from open to closed after tests pass and you have re-reviewed the fix.
+"""
 
 
-def build_writer_prompt(project: Path, issues_dir: Path, test_cmd: str, tests: CommandResult) -> str:
-    return f'''You are the writer in an automated review loop.
+def build_writer_prompt(project: Path, open_issues_dir: Path, test_cmd: str, tests: CommandResult) -> str:
+    return f"""You are the writer in an automated review loop.
 
 Project: {project}
-Issues directory: {issues_dir}
+Open issues directory: {open_issues_dir}
 Test command: {test_cmd}
 
 Read the open issue files and the failing pytest docstrings before editing code.
 Make the smallest production-code change that resolves the open issues.
-Do not mark issues resolved; the reviewer owns issue status.
+Do not move issue files; the reviewer owns issue closure.
 
 Latest test output:
 ```
 {trim(tests.combined_output)}
 ```
-'''
+"""
 
 
-def build_verifier_prompt(project: Path, issues_dir: Path, test_cmd: str, tests: CommandResult) -> str:
-    return f'''You are the reviewer verifying the writer's changes.
+def build_verifier_prompt(
+    project: Path,
+    open_issues_dir: Path,
+    closed_issues_dir: Path,
+    test_cmd: str,
+    tests: CommandResult,
+) -> str:
+    return f"""You are the reviewer verifying the writer's changes.
 
 Project: {project}
-Issues directory: {issues_dir}
+Open issues directory: {open_issues_dir}
+Closed issues directory: {closed_issues_dir}
 Test command: {test_cmd}
 
 Review the current code and test output.
-Tick or mark resolved only the issues that are genuinely fixed.
-Keep unresolved issues open and add concise notes if the fix is incomplete.
+Move only genuinely fixed issue files from open to closed.
+Keep unresolved issues in open and add concise notes if the fix is incomplete.
 Add new issue files only for real regressions or newly discovered risks.
 
 Latest test output:
 ```
 {trim(tests.combined_output)}
 ```
-'''
+"""
 
 
-def list_open_issues(issues_dir: Path) -> list[str]:
-    if not issues_dir.exists():
+def list_open_issues(open_issues_dir: Path) -> list[str]:
+    if not open_issues_dir.exists():
         return []
-    open_files = []
-    for path in sorted(issues_dir.glob("*.md")):
-        if issue_status(path) not in {"resolved", "closed", "done"}:
-            open_files.append(path.name)
-    return open_files
-
-
-def issue_status(path: Path) -> str:
-    text = path.read_text(encoding="utf-8")
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.lower().startswith("status:"):
-            return stripped.split(":", 1)[1].strip().lower()
-    if "- [ ]" in text:
-        return "open"
-    if "- [x]" in text.lower():
-        return "resolved"
-    return "open"
+    return sorted(path.name for path in open_issues_dir.glob("*.md"))
 
 
 def cycle_state(cycle: int, open_issues: list[str], tests: CommandResult, skipped_writer: bool) -> dict:
