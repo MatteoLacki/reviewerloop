@@ -53,6 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--reviewer", required=True, help="Reviewer command; prompt is sent on stdin")
     run_parser.add_argument("--writer", required=True, help="Writer command; prompt is sent on stdin")
     run_parser.add_argument("--test-cmd", default="pytest -q", help="Test command run inside the project")
+    run_parser.add_argument("--config", type=Path, default=None, help="Markdown file with reviewer and writer instructions")
     run_parser.add_argument("--max-cycles", type=int, default=5, help="Maximum reviewer/writer cycles")
     run_parser.add_argument("--workdir", default=".reviewerloop", help="Directory for state, issues, and logs")
 
@@ -73,10 +74,12 @@ def run_loop(args: argparse.Namespace) -> int:
     closed_issues_dir.mkdir(parents=True, exist_ok=True)
     runs_dir.mkdir(parents=True, exist_ok=True)
 
+    reviewer_instructions, writer_instructions = load_config(args.config)
     state = {
         "project": str(project),
         "max_cycles": args.max_cycles,
         "test_cmd": args.test_cmd,
+        "config": str(args.config.resolve()) if args.config else None,
         "cycles": [],
     }
 
@@ -86,7 +89,7 @@ def run_loop(args: argparse.Namespace) -> int:
         run_dir.mkdir(parents=True, exist_ok=True)
 
         print(color(f"[reviewerloop] cycle {cycle}: reviewer", RED), flush=True)
-        review_prompt = build_reviewer_prompt(project, open_issues_dir, closed_issues_dir, args.test_cmd, cycle)
+        review_prompt = build_reviewer_prompt(project, open_issues_dir, closed_issues_dir, args.test_cmd, cycle, reviewer_instructions)
         reviewer_result = run_agent(args.reviewer, review_prompt, project)
         write_text(run_dir / "reviewer.prompt.md", review_prompt)
         write_result(run_dir / "reviewer", reviewer_result)
@@ -107,7 +110,7 @@ def run_loop(args: argparse.Namespace) -> int:
             return 0
 
         print(color(f"[reviewerloop] cycle {cycle}: writer", BLUE), flush=True)
-        writer_prompt = build_writer_prompt(project, open_issues_dir, args.test_cmd, first_tests)
+        writer_prompt = build_writer_prompt(project, open_issues_dir, args.test_cmd, first_tests, writer_instructions)
         writer_result = run_agent(args.writer, writer_prompt, project)
         write_text(run_dir / "writer.prompt.md", writer_prompt)
         write_result(run_dir / "writer", writer_result)
@@ -121,7 +124,7 @@ def run_loop(args: argparse.Namespace) -> int:
         write_result(run_dir / "tests.after-writer", second_tests)
 
         print(color(f"[reviewerloop] cycle {cycle}: verifier", MAGENTA), flush=True)
-        verify_prompt = build_verifier_prompt(project, open_issues_dir, closed_issues_dir, args.test_cmd, second_tests)
+        verify_prompt = build_verifier_prompt(project, open_issues_dir, closed_issues_dir, args.test_cmd, second_tests, reviewer_instructions)
         verifier_result = run_agent(args.reviewer, verify_prompt, project)
         write_text(run_dir / "verifier.prompt.md", verify_prompt)
         write_result(run_dir / "verifier", verifier_result)
@@ -194,6 +197,7 @@ def build_reviewer_prompt(
     closed_issues_dir: Path,
     test_cmd: str,
     cycle: int,
+    reviewer_instructions: str = "",
 ) -> str:
     return f"""You are the reviewer in an automated code review loop.
 
@@ -209,10 +213,16 @@ Create or update one markdown file per open issue in the open issues directory.
 If practical, add regression tests that fail until the issue is fixed.
 Every new pytest regression test must have a docstring explaining why the test exists and what behavior it guards.
 Do not implement production fixes. Close issues only by moving issue files from open to closed after tests pass and you have re-reviewed the fix.
-"""
+{format_extra_instructions("Reviewer", reviewer_instructions)}"""
 
 
-def build_writer_prompt(project: Path, open_issues_dir: Path, test_cmd: str, tests: CommandResult) -> str:
+def build_writer_prompt(
+    project: Path,
+    open_issues_dir: Path,
+    test_cmd: str,
+    tests: CommandResult,
+    writer_instructions: str = "",
+) -> str:
     return f"""You are the writer in an automated review loop.
 
 Project: {project}
@@ -223,7 +233,7 @@ Read the open issue files and the failing pytest docstrings before editing code.
 Print a concise human-readable summary of what is failing, what change you made, and why that should fix it.
 Make the smallest production-code change that resolves the open issues.
 Do not move issue files; the reviewer owns issue closure.
-
+{format_extra_instructions("Writer", writer_instructions)}
 Latest test output:
 ```
 {trim(tests.combined_output)}
@@ -237,6 +247,7 @@ def build_verifier_prompt(
     closed_issues_dir: Path,
     test_cmd: str,
     tests: CommandResult,
+    reviewer_instructions: str = "",
 ) -> str:
     return f"""You are the reviewer verifying the writer's changes.
 
@@ -250,12 +261,47 @@ Print a concise human-readable verification note explaining whether the fix is c
 Move only genuinely fixed issue files from open to closed.
 Keep unresolved issues in open and add concise notes if the fix is incomplete.
 Add new issue files only for real regressions or newly discovered risks.
-
+{format_extra_instructions("Reviewer", reviewer_instructions)}
 Latest test output:
 ```
 {trim(tests.combined_output)}
 ```
 """
+
+
+def load_config(path: Path | None) -> tuple[str, str]:
+    if path is None:
+        return "", ""
+    text = path.read_text(encoding="utf-8")
+    return (
+        markdown_h1_section(text, "Reviewer's instructions"),
+        markdown_h1_section(text, "Writer's instructions"),
+    )
+
+
+def markdown_h1_section(markdown: str, heading: str) -> str:
+    lines = markdown.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.strip() == f"# {heading}":
+            start = index + 1
+            break
+    if start is None:
+        return ""
+
+    end = len(lines)
+    for index in range(start, len(lines)):
+        stripped = lines[index].strip()
+        if stripped.startswith("# "):
+            end = index
+            break
+    return "\n".join(lines[start:end]).strip()
+
+
+def format_extra_instructions(role: str, instructions: str) -> str:
+    if not instructions.strip():
+        return ""
+    return f"\nAdditional {role.lower()} instructions from config:\n{instructions.strip()}\n"
 
 
 def list_open_issues(open_issues_dir: Path) -> list[str]:

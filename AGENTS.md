@@ -16,7 +16,7 @@ The package intentionally stays minimal:
 Run:
 
 ```bash
-reviewerloop run   --project .   --reviewer "codex exec"   --writer "claude"   --test-cmd "pytest -q"   --max-cycles 5
+reviewerloop run   --project .   --reviewer "codex exec"   --writer "claude"   --config reviewerloop.md   --test-cmd "pytest -q"   --max-cycles 5
 ```
 
 The target project receives:
@@ -29,6 +29,20 @@ The target project receives:
   runs/         # prompts, stdout, stderr, and return codes per cycle
   state.json    # machine-readable loop state
 ```
+
+## Instruction config
+
+`reviewerloop run --config instructions.md` loads extra markdown instructions for both roles. The file must use these top-level headings:
+
+```md
+# Reviewer's instructions
+...
+
+# Writer's instructions
+...
+```
+
+The reviewer section is appended to review and verification prompts. The writer section is appended to writer prompts. Missing sections are treated as empty.
 
 ## Roles
 

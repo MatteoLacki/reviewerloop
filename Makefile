@@ -16,6 +16,7 @@ demo:
 	$(PYTHON) examples/make_demo_project.py $(DEMO_DIR)
 	$(REVIEWERLOOP) run \
 		--project $(DEMO_DIR) \
+		--config $(ROOT)/examples/demo_instructions.md \
 		--reviewer "$(PYTHON) $(ROOT)/examples/demo_reviewer.py" \
 		--writer "$(PYTHON) $(ROOT)/examples/demo_writer.py" \
 		--test-cmd "$(PYTHON) -m pytest -q" \
